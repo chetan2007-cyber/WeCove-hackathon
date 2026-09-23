@@ -19,26 +19,26 @@ describe('Security, Authentication & User Flow Verification Suite', () => {
     expect(welcomeHeading).toBeInTheDocument();
   });
 
-  test('2. Authentication Options: Phone and Email Mode Switching', async () => {
+  test('2. Authentication Interface: Role Selection, Unified Credential Input, and Registration Navigation', async () => {
     render(<App />);
 
-    // Find authentication mode buttons
-    const phoneBtn = await screen.findByRole('button', { name: /Continue with Phone/i });
-    const emailBtn = await screen.findByRole('button', { name: /Continue with Email/i });
+    // Check Role selection buttons
+    const patientRole = await screen.findByRole('button', { name: /Patient/i });
+    const caregiverRole = await screen.findByRole('button', { name: /Caregiver/i });
+    expect(patientRole).toBeInTheDocument();
+    expect(caregiverRole).toBeInTheDocument();
 
-    expect(phoneBtn).toBeInTheDocument();
-    expect(emailBtn).toBeInTheDocument();
+    // Check Credential input
+    const credentialInput = screen.getByPlaceholderText(/name@smriti\.care or 9876543210/i);
+    expect(credentialInput).toBeInTheDocument();
 
-    // Default is Phone
-    expect(screen.getByText(/Mobile Number \(\+91\)/i)).toBeInTheDocument();
+    // Check Password input
+    const passwordInput = screen.getByPlaceholderText(/characters|password/i);
+    expect(passwordInput).toBeInTheDocument();
 
-    // Switch to Email
-    fireEvent.click(emailBtn);
-    expect(screen.getByText(/Email Address/i)).toBeInTheDocument();
-
-    // Switch back to Phone
-    fireEvent.click(phoneBtn);
-    expect(screen.getByText(/Mobile Number \(\+91\)/i)).toBeInTheDocument();
+    // Check Navigation to Register tab
+    const createAccountTab = screen.getByRole('button', { name: /Create Account/i });
+    expect(createAccountTab).toBeInTheDocument();
   });
 
   test('3. Phone Normalization & Validation Rules', () => {

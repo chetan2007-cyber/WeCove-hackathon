@@ -19,10 +19,12 @@ import MemoryConstellation from './pages/MemoryConstellation';
 import CaregiverSchedule from './pages/CaregiverSchedule';
 import PatientReels from './pages/PatientReels';
 import { LanguageProvider } from './context/LanguageContext';
+import { GoogleOAuthProvider } from '@react-oauth/google';
 
 export default function App() {
   return (
-    <LanguageProvider>
+    <GoogleOAuthProvider clientId="348524516027-3o5bt9i4naobtn7kaqusqmisf11j3h51.apps.googleusercontent.com">
+      <LanguageProvider>
       <Router>
         <Routes>
           {/* Public Routes */}
@@ -116,5 +118,6 @@ export default function App() {
         </Routes>
       </Router>
     </LanguageProvider>
+    </GoogleOAuthProvider>
   );
 }

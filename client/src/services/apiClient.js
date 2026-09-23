@@ -1,7 +1,21 @@
 import axios from 'axios';
 
-// Base API URL with fallback
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+// Detect whether running locally or deployed in cloud (e.g. Vercel)
+const getApiBaseUrl = () => {
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    // When running in production on Vercel or any non-localhost domain:
+    if (host && host !== 'localhost' && host !== '127.0.0.1') {
+      if (process.env.REACT_APP_API_URL && !process.env.REACT_APP_API_URL.includes('localhost')) {
+        return process.env.REACT_APP_API_URL;
+      }
+      return 'https://wecove-hackathon.onrender.com/api';
+    }
+  }
+  return process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
@@ -45,9 +59,9 @@ apiClient.interceptors.response.use(
 
     if (!error.response) {
       if (error.code === 'ECONNABORTED') {
-        friendlyMessage = 'Request timed out. Please check your internet connection.';
+        friendlyMessage = 'Request timed out. The server may be waking up. Please try again in a moment.';
       } else {
-        friendlyMessage = 'Unable to connect to the server. You are currently in offline mode.';
+        friendlyMessage = 'Unable to connect to live server. Operating in offline-resilient mode.';
       }
     } else {
       const { status, data } = error.response;
