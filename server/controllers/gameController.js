@@ -7,11 +7,15 @@ exports.generateDailyActivity = async (req, res) => {
   try {
     const { patientId } = req.params;
 
+    if (req.user && req.userRole === 'Patient' && String(req.userId) !== String(patientId)) {
+      return res.status(403).json({ success: false, message: 'Access denied: You cannot request games for another patient' });
+    }
+
     // 1. Fetch ALL confirmed memories for this patient
     let availableMemories = await MemoryItem.find({ 
       patientId: patientId,
       status: 'confirmed' 
-    }).sort({ createdAt: 1 }); // <-- Fixed to 1 (ascending) // Oldest to newest, or change to -1 for newest first
+    }).sort({ createdAt: 1 });
 
     if (availableMemories.length === 0) {
       availableMemories = await MemoryItem.find({ status: 'confirmed' });
@@ -23,11 +27,7 @@ exports.generateDailyActivity = async (req, res) => {
 
     // 2. ROTATION LOGIC: Count how many games this patient has played so far
     const playedGamesCount = await GameResult.countDocuments({ patientId });
-
-    // Use modulo arithmetic so it cycles infinitely through the photos 
-    // (e.g., if you have 3 photos, it plays 0 -> 1 -> 2 -> 0 -> 1 -> 2)
-    const totalGamesPlayed = await GameResult.countDocuments({});
-    const rotationIndex = totalGamesPlayed % availableMemories.length;
+    const rotationIndex = playedGamesCount % availableMemories.length;
     const selectedMemory = availableMemories[rotationIndex];
     
     res.status(200).json({
@@ -44,7 +44,10 @@ exports.generateDailyActivity = async (req, res) => {
 
 exports.saveResult = async (req, res) => {
   try {
-    const { patientId, memoryId, memoryItem, isCorrect, responseTime } = req.body;
+    let { patientId, memoryId, memoryItem, isCorrect, responseTime } = req.body;
+    if (req.user && req.userRole === 'Patient') {
+      patientId = String(req.userId);
+    }
     const resolvedMemoryId = memoryId || memoryItem;
 
     // 1. Save the individual answer
@@ -53,7 +56,7 @@ exports.saveResult = async (req, res) => {
       memoryId: resolvedMemoryId,
       memoryItem: resolvedMemoryId,
       isCorrect,
-      responseTime: responseTime || 5000, // Default to 5s if frontend misses it
+      responseTime: responseTime || 5000,
       completedAt: new Date()
     });
     await newResult.save();

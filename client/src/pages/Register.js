@@ -1,17 +1,19 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowRight, RefreshCcw, ShieldCheck, AlertCircle, HeartHandshake, UserRound, Stethoscope } from "lucide-react";
+import { Phone, Mail, ArrowRight, RefreshCcw, ShieldCheck, AlertCircle, HeartHandshake, UserRound, Stethoscope } from "lucide-react";
 import { SectionLabel, SoftButton, BrandMark } from "../components/shared";
 import { useLanguage } from '../context/LanguageContext';
 import LanguageSelector from '../components/LanguageSelector';
-import authService, { normalizeIndianPhone } from "../services/authService";
+import authService, { normalizeIndianPhone, isValidEmail } from "../services/authService";
 
 export default function Register() {
   const { t } = useLanguage();
   const navigate = useNavigate();
 
+  const [authMethod, setAuthMethod] = useState("phone"); // 'phone' | 'email'
   const [name, setName] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
+  const [emailAddress, setEmailAddress] = useState("");
   const [selectedRole, setSelectedRole] = useState("Patient");
   const [termsAgreed, setTermsAgreed] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -47,31 +49,61 @@ export default function Register() {
       return;
     }
 
-    const { isValid, normalized, error } = normalizeIndianPhone(phoneNumber);
-    if (!isValid) {
-      setErrorMsg(error || "Please enter a valid 10-digit Indian mobile number.");
-      return;
-    }
-
     if (!termsAgreed) {
       setErrorMsg("Please accept the terms of care to continue.");
       return;
     }
 
-    setSubmitting(true);
+    if (authMethod === "phone") {
+      const { isValid, normalized, error } = normalizeIndianPhone(phoneNumber);
+      if (!isValid) {
+        setErrorMsg(error || "Please enter a valid 10-digit Indian mobile number.");
+        return;
+      }
 
-    try {
-      await authService.sendPhoneOtp(normalized);
-      navigate("/verify", {
-        state: {
-          phone: normalized,
-          role: selectedRole,
-          name: name.trim()
-        }
-      });
-    } catch (err) {
-      setErrorMsg(err.message || "Failed to send verification code. Please check your number.");
-      setSubmitting(false);
+      setSubmitting(true);
+      try {
+        const res = await authService.sendPhoneOtp(normalized, selectedRole);
+        navigate("/verify", {
+          state: {
+            phone: normalized,
+            role: selectedRole,
+            name: name.trim(),
+            authMethod: "phone",
+            smsDelivered: res.smsDelivered,
+            devOtp: res.devOtp,
+            providerNotice: res.message
+          }
+        });
+      } catch (err) {
+        setErrorMsg(err.message || "Failed to send verification code. Please check your number.");
+        setSubmitting(false);
+      }
+    } else {
+      const cleanEmail = emailAddress.trim().toLowerCase();
+      if (!isValidEmail(cleanEmail)) {
+        setErrorMsg("Please enter a valid email address (e.g. name@domain.com).");
+        return;
+      }
+
+      setSubmitting(true);
+      try {
+        const res = await authService.sendEmailOtp(cleanEmail, selectedRole);
+        navigate("/verify", {
+          state: {
+            email: cleanEmail,
+            role: selectedRole,
+            name: name.trim(),
+            authMethod: "email",
+            emailDelivered: res.emailDelivered,
+            devOtp: res.devOtp,
+            providerNotice: res.message
+          }
+        });
+      } catch (err) {
+        setErrorMsg(err.message || "Failed to send verification email. Please check your address.");
+        setSubmitting(false);
+      }
     }
   };
 
@@ -155,6 +187,34 @@ export default function Register() {
               </div>
             </div>
 
+            {/* Auth Method Switcher: Phone vs Email */}
+            <div className="mt-6 flex rounded-xl bg-[#EFEFEF]/70 p-1 border border-[#DCE5E3]">
+              <button
+                type="button"
+                onClick={() => { setAuthMethod("phone"); setErrorMsg(""); }}
+                className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-xs font-bold rounded-lg transition-all ${
+                  authMethod === "phone"
+                    ? "bg-white text-[#0F7673] shadow-sm"
+                    : "text-[#6F858D] hover:text-[#162D3D]"
+                }`}
+              >
+                <Phone className="w-3.5 h-3.5" />
+                <span>Register with Phone</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => { setAuthMethod("email"); setErrorMsg(""); }}
+                className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-xs font-bold rounded-lg transition-all ${
+                  authMethod === "email"
+                    ? "bg-white text-[#0F7673] shadow-sm"
+                    : "text-[#6F858D] hover:text-[#162D3D]"
+                }`}
+              >
+                <Mail className="w-3.5 h-3.5" />
+                <span>Register with Email</span>
+              </button>
+            </div>
+
             {/* Error Message */}
             {errorMsg && (
               <div className="mt-6 p-4 rounded-xl text-sm font-semibold bg-[#F6E9E6] text-[#9B4D45] border border-[#9B4D45]/20 flex items-center gap-2">
@@ -182,28 +242,55 @@ export default function Register() {
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-[#6F858D] mb-2">
-                  Mobile Number (+91)
-                </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-sm font-semibold text-[#162D3D]">
-                    +91
+              {authMethod === "phone" && (
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-[#6F858D] mb-2">
+                    Mobile Number (+91)
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-sm font-semibold text-[#162D3D] gap-1.5">
+                      <Phone className="w-4 h-4 text-[#0F7673]" />
+                      <span>+91</span>
+                    </div>
+                    <input
+                      type="tel"
+                      required
+                      placeholder="98765 43210"
+                      maxLength={10}
+                      value={phoneNumber}
+                      onChange={(e) => {
+                        setPhoneNumber(e.target.value.replace(/\D/g, ""));
+                        setErrorMsg("");
+                      }}
+                      className="w-full h-14 pl-20 pr-4 rounded-2xl border border-[#DCE5E3] bg-white text-lg font-medium text-[#162D3D] outline-none transition focus:border-[#0F7673] focus:ring-2 focus:ring-[#0F7673]/10"
+                    />
                   </div>
-                  <input
-                    type="tel"
-                    required
-                    placeholder="98765 43210"
-                    maxLength={10}
-                    value={phoneNumber}
-                    onChange={(e) => {
-                      setPhoneNumber(e.target.value.replace(/\D/g, ""));
-                      setErrorMsg("");
-                    }}
-                    className="w-full h-14 pl-14 pr-4 rounded-2xl border border-[#DCE5E3] bg-white text-lg font-medium text-[#162D3D] outline-none transition focus:border-[#0F7673] focus:ring-2 focus:ring-[#0F7673]/10"
-                  />
                 </div>
-              </div>
+              )}
+
+              {authMethod === "email" && (
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-[#6F858D] mb-2">
+                    Email Address
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-sm font-semibold text-[#162D3D]">
+                      <Mail className="w-4 h-4 text-[#0F7673]" />
+                    </div>
+                    <input
+                      type="email"
+                      required
+                      placeholder="name@smriti.care"
+                      value={emailAddress}
+                      onChange={(e) => {
+                        setEmailAddress(e.target.value);
+                        setErrorMsg("");
+                      }}
+                      className="w-full h-14 pl-12 pr-4 rounded-2xl border border-[#DCE5E3] bg-white text-base font-medium text-[#162D3D] outline-none transition focus:border-[#0F7673] focus:ring-2 focus:ring-[#0F7673]/10"
+                    />
+                  </div>
+                </div>
+              )}
 
               <div className="flex items-start gap-3 pt-1">
                 <input
@@ -221,7 +308,7 @@ export default function Register() {
               <SoftButton
                 type="submit"
                 className="w-full h-13 text-base"
-                disabled={submitting || !name.trim() || phoneNumber.length < 10 || !termsAgreed}
+                disabled={submitting || !name.trim() || (authMethod === 'phone' ? phoneNumber.length < 10 : !emailAddress.trim()) || !termsAgreed}
                 icon={submitting ? <RefreshCcw className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
               >
                 {submitting ? "Sending verification code..." : "Create Care Space"}

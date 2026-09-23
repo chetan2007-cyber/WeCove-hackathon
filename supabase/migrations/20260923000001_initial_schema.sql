@@ -69,18 +69,21 @@ END $$;
 -- 3.1 User Profiles (extends Supabase auth.users or operates standalone)
 CREATE TABLE IF NOT EXISTS user_profiles (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  phone VARCHAR(20) UNIQUE NOT NULL,
+  phone VARCHAR(20) UNIQUE,
+  email VARCHAR(255) UNIQUE,
   name VARCHAR(100) NOT NULL,
   role user_role NOT NULL,
   preferred_language language_code DEFAULT 'en',
   is_verified BOOLEAN DEFAULT FALSE,
   avatar_url TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  CONSTRAINT check_contact_method CHECK (phone IS NOT NULL OR email IS NOT NULL)
 );
 
--- Index for phone lookups and role queries
+-- Index for phone, email, and role queries
 CREATE INDEX IF NOT EXISTS idx_user_profiles_phone ON user_profiles(phone);
+CREATE INDEX IF NOT EXISTS idx_user_profiles_email ON user_profiles(email);
 CREATE INDEX IF NOT EXISTS idx_user_profiles_role ON user_profiles(role);
 
 -- 3.2 Patients Table

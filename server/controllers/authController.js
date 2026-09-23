@@ -2,16 +2,33 @@ const User = require('../models/User');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
+const smsService = require('../services/smsService');
 const { JWT_SECRET } = require('../middlewares/authMiddleware');
 
 // Set up email transporter
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS
+const createMailTransporter = () => {
+  if (process.env.SMTP_HOST && process.env.SMTP_USER) {
+    return nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: Number(process.env.SMTP_PORT) || 587,
+      secure: Number(process.env.SMTP_PORT) === 465,
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS
+      }
+    });
   }
-});
+
+  return nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASS
+    }
+  });
+};
+
+const transporter = createMailTransporter();
 
 const generateToken = (id, role = 'Patient') => 
   jwt.sign({ id, role }, JWT_SECRET, { expiresIn: '30d' });
@@ -27,72 +44,21 @@ const normalizePhone = (phone) => {
   return cleaned.startsWith('+') ? cleaned : `+91${cleaned}`;
 };
 
-// 1. Register User (Email + Password, sends OTP)
-exports.registerUser = async (req, res) => {
-  try {
-    const { name, email, phone, password, role } = req.body;
-    
-    if (email && await User.findOne({ email })) {
-      return res.status(400).json({ message: 'User with this email already exists' });
-    }
-    const cleanPhone = phone ? normalizePhone(phone) : null;
-    if (cleanPhone && await User.findOne({ phone: cleanPhone })) {
-      return res.status(400).json({ message: 'User with this phone number already exists' });
-    }
-
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password || 'otp-authenticated', salt);
-    const otp = generateOTP();
-    const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-
-    const user = await User.create({ 
-      name: name || 'User', 
-      email: email || `${cleanPhone || Date.now()}@smriti.care`, 
-      phone: cleanPhone,
-      password: hashedPassword, 
-      role: role || 'Patient', 
-      otp,
-      otpExpiresAt
-    });
-
-    if (email && process.env.EMAIL_USER) {
-      try {
-        await transporter.sendMail({
-          from: 'Smriti AI Memory Care',
-          to: email,
-          subject: 'Verify your Smriti Account',
-          text: `Your Smriti registration OTP is: ${otp}`
-        });
-      } catch (mailErr) {
-        console.warn('[Mail Warning] Failed to send email, proceeding in dev mode:', mailErr.message);
-      }
-    }
-
-    console.log(`[DEV MODE] OTP for ${cleanPhone || email} is ${otp}`);
-
-    res.status(201).json({ 
-      message: 'User created. Please verify OTP.', 
-      email: user.email, 
-      phone: user.phone,
-      devOtp: process.env.NODE_ENV !== 'production' ? otp : undefined 
-    });
-  } catch (error) {
-    console.error('Registration error:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
+const isValidEmail = (email) => {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || '').trim().toLowerCase());
 };
 
-// 2. Send Phone OTP
+// 1. Send Phone OTP
 exports.sendPhoneOtp = async (req, res) => {
   try {
     const { phone, role = 'Patient' } = req.body;
     if (!phone) {
-      return res.status(400).json({ message: 'Phone number is required' });
+      return res.status(400).json({ success: false, message: 'Phone number is required' });
     }
 
     const cleanPhone = normalizePhone(phone);
     if (!/^\+91[6-9]\d{9}$/.test(cleanPhone)) {
-      return res.status(400).json({ message: 'Invalid Indian mobile number. Expected +91XXXXXXXXXX' });
+      return res.status(400).json({ success: false, message: 'Invalid Indian mobile number. Expected 10 digits (+91[6-9]XXXXXXXXX)' });
     }
 
     const otp = generateOTP();
@@ -100,7 +66,6 @@ exports.sendPhoneOtp = async (req, res) => {
 
     let user = await User.findOne({ phone: cleanPhone });
     if (!user) {
-      // Create user stub
       user = await User.create({
         name: `User ${cleanPhone.slice(-4)}`,
         phone: cleanPhone,
@@ -120,46 +85,53 @@ exports.sendPhoneOtp = async (req, res) => {
       await user.save();
     }
 
-    console.log(`[AUTH] 📱 Generated OTP for ${cleanPhone}: ${otp}`);
+    // Real SMS dispatch attempt
+    const dispatch = await smsService.sendOtp(cleanPhone, otp);
 
     return res.status(200).json({
       success: true,
-      message: `OTP sent successfully to ${cleanPhone}`,
+      message: dispatch.delivered 
+        ? `Verification code dispatched to ${cleanPhone}` 
+        : `Verification code generated. (SMS Gateway not configured: set TWILIO_* or FAST2SMS_API_KEY in server/.env for telecom delivery)`,
       phone: cleanPhone,
-      devOtp: process.env.NODE_ENV !== 'production' ? otp : undefined
+      smsDelivered: dispatch.delivered,
+      provider: dispatch.provider,
+      devOtp: !dispatch.delivered ? otp : undefined
     });
   } catch (error) {
-    console.error('Send Phone OTP Error:', error);
-    return res.status(500).json({ message: 'Failed to send OTP', error: error.message });
+    console.error('[Auth] Send Phone OTP Error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to send OTP', error: error.message });
   }
 };
 
-// 3. Verify Phone OTP
+// 2. Verify Phone OTP
 exports.verifyPhoneOtp = async (req, res) => {
   try {
-    const { phone, otp, role } = req.body;
+    const { phone, otp, role, name } = req.body;
     if (!phone || !otp) {
-      return res.status(400).json({ message: 'Phone and OTP are required' });
+      return res.status(400).json({ success: false, message: 'Phone and 6-digit OTP code are required.' });
     }
 
     const cleanPhone = normalizePhone(phone);
     const user = await User.findOne({ phone: cleanPhone });
 
     if (!user) {
-      return res.status(404).json({ message: 'User not found for this phone number' });
+      return res.status(404).json({ success: false, message: 'Account not found for this phone number. Please register first.' });
     }
 
     if (user.otp !== otp) {
-      return res.status(400).json({ message: 'Invalid OTP code' });
+      return res.status(400).json({ success: false, message: 'Invalid verification code. Please check and try again.' });
     }
 
     if (user.otpExpiresAt && new Date() > user.otpExpiresAt) {
-      return res.status(400).json({ message: 'OTP has expired. Please request a new one.' });
+      return res.status(400).json({ success: false, message: 'Verification code has expired. Please request a new code.' });
     }
 
-    // Role check if requested
     if (role && user.role !== role) {
       user.role = role;
+    }
+    if (name && (!user.name || user.name.startsWith('User '))) {
+      user.name = name.trim();
     }
 
     user.isVerified = true;
@@ -170,7 +142,7 @@ exports.verifyPhoneOtp = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: 'Phone verified successfully',
+      message: 'Phone verified successfully.',
       token,
       user: {
         _id: user._id,
@@ -179,125 +151,253 @@ exports.verifyPhoneOtp = async (req, res) => {
         phone: user.phone,
         email: user.email,
         role: user.role,
+        isVerified: true,
         preferences: user.preferences
       }
     });
   } catch (error) {
-    console.error('Verify Phone OTP Error:', error);
-    return res.status(500).json({ message: 'Failed to verify OTP', error: error.message });
+    console.error('[Auth] Verify Phone OTP Error:', error);
+    return res.status(500).json({ success: false, message: 'Verification failed', error: error.message });
   }
 };
 
-// 4. Google Auth
-exports.googleAuth = async (req, res) => {
+// 3. Send Email OTP
+exports.sendEmailOtp = async (req, res) => {
   try {
-    const { name, email, role } = req.body;
-    let user = await User.findOne({ email });
-    
+    const { email, role = 'Patient' } = req.body;
+    if (!email) {
+      return res.status(400).json({ success: false, message: 'Email address is required.' });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    if (!isValidEmail(cleanEmail)) {
+      return res.status(400).json({ success: false, message: 'Please enter a valid email address (e.g., name@domain.com).' });
+    }
+
+    const otp = generateOTP();
+    const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    let user = await User.findOne({ email: cleanEmail });
     if (!user) {
-      const randomPassword = Math.random().toString(36).slice(-8);
-      const salt = await bcrypt.genSalt(10);
-      const otp = generateOTP();
-      
       user = await User.create({
-        name, 
-        email, 
-        password: await bcrypt.hash(randomPassword, salt), 
-        role: role || 'Patient', 
+        name: cleanEmail.split('@')[0],
+        email: cleanEmail,
+        password: await bcrypt.hash(Math.random().toString(36), 10),
+        role: role || 'Patient',
         otp,
-        isVerified: true
+        otpExpiresAt,
+        isVerified: false
       });
-
-      console.log(`[DEV MODE] Google user registered: ${email}`);
-      const token = generateToken(user._id, user.role);
-      return res.status(200).json({ 
-        _id: user.id, 
-        id: user.id,
-        name: user.name, 
-        email: user.email, 
-        role: user.role, 
-        token 
-      });
+    } else {
+      user.otp = otp;
+      user.otpExpiresAt = otpExpiresAt;
+      if (role && user.role !== role) {
+        user.role = role;
+      }
+      await user.save();
     }
 
-    // Strict Role Check for existing Google users logging in
-    if (role && user.role !== role) {
-      return res.status(403).json({ message: `Access Denied: You are registered as a ${user.role}, not a ${role}.` });
+    let emailDelivered = false;
+    let provider = 'none';
+
+    // Dispatch real email if SMTP / EMAIL credentials configured
+    if ((process.env.EMAIL_USER && process.env.EMAIL_PASS) || process.env.SMTP_HOST) {
+      try {
+        await transporter.sendMail({
+          from: `"Smriti AI Memory Care" <${process.env.EMAIL_USER || process.env.SMTP_USER || 'no-reply@smriti.care'}>`,
+          to: cleanEmail,
+          subject: 'Your Smriti Verification Code',
+          text: `Your Smriti AI Memory Care verification code is: ${otp}. Valid for 10 minutes.`,
+          html: `
+            <div style="font-family: sans-serif; max-width: 500px; padding: 24px; border: 1px solid #DCE5E3; border-radius: 16px;">
+              <h2 style="color: #0F7673; margin-top: 0;">Smriti AI Memory Care</h2>
+              <p style="font-size: 16px; color: #222B32;">Here is your verification code to access your care space:</p>
+              <div style="background-color: #E5F0EE; padding: 18px; border-radius: 12px; font-size: 32px; font-weight: bold; letter-spacing: 6px; text-align: center; color: #0F7673; margin: 24px 0;">
+                ${otp}
+              </div>
+              <p style="font-size: 13px; color: #647980;">This code is valid for 10 minutes. If you did not request this code, you can safely ignore this email.</p>
+            </div>
+          `
+        });
+        emailDelivered = true;
+        provider = 'nodemailer';
+        console.log(`[AUTH] ✉️ Dispatched email OTP to ${cleanEmail}`);
+      } catch (mailErr) {
+        console.warn(`[AUTH] ⚠️ Email dispatch failed:`, mailErr.message);
+      }
+    } else {
+      console.warn(`[AUTH] ⚠️ No SMTP/Email credentials configured. Code for ${cleanEmail}: ${otp}`);
     }
 
-    const token = generateToken(user._id, user.role);
-    res.status(200).json({ 
-      _id: user.id, 
-      id: user.id,
-      name: user.name, 
-      email: user.email, 
-      role: user.role, 
-      token 
+    return res.status(200).json({
+      success: true,
+      message: emailDelivered 
+        ? `Verification code dispatched to ${cleanEmail}` 
+        : `Verification code generated. (SMTP configuration required in server/.env for production inbox delivery)`,
+      email: cleanEmail,
+      emailDelivered,
+      provider,
+      devOtp: !emailDelivered ? otp : undefined
     });
   } catch (error) {
-    res.status(500).json({ message: 'Google auth error', error: error.message });
+    console.error('[Auth] Send Email OTP Error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to send email verification code', error: error.message });
   }
 };
 
-// 5. Verify OTP Endpoint (Email)
-exports.verifyOTP = async (req, res) => {
+// 4. Verify Email OTP
+exports.verifyEmailOtp = async (req, res) => {
   try {
-    const { email, otp } = req.body;
-    const user = await User.findOne({ email });
+    const { email, otp, role, name } = req.body;
+    if (!email || !otp) {
+      return res.status(400).json({ success: false, message: 'Email and 6-digit OTP code are required.' });
+    }
 
-    if (!user) return res.status(404).json({ message: 'User not found' });
-    if (user.otp !== otp) return res.status(400).json({ message: 'Invalid OTP' });
+    const cleanEmail = email.trim().toLowerCase();
+    const user = await User.findOne({ email: cleanEmail });
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'Account not found for this email address. Please register first.' });
+    }
+
+    if (user.otp !== otp) {
+      return res.status(400).json({ success: false, message: 'Invalid verification code. Please check and try again.' });
+    }
+
+    if (user.otpExpiresAt && new Date() > user.otpExpiresAt) {
+      return res.status(400).json({ success: false, message: 'Verification code has expired. Please request a new code.' });
+    }
+
+    if (role && user.role !== role) {
+      user.role = role;
+    }
+    if (name) {
+      user.name = name.trim();
+    }
 
     user.isVerified = true;
     user.otp = '';
     await user.save();
 
     const token = generateToken(user._id, user.role);
-    res.status(200).json({ 
-      message: 'Account verified successfully. You can now log in.',
+
+    return res.status(200).json({
+      success: true,
+      message: 'Email verified successfully.',
       token,
       user: {
         _id: user._id,
         id: user._id,
         name: user.name,
         email: user.email,
-        role: user.role
+        phone: user.phone,
+        role: user.role,
+        isVerified: true,
+        preferences: user.preferences
       }
     });
   } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error('[Auth] Verify Email OTP Error:', error);
+    return res.status(500).json({ success: false, message: 'Verification failed', error: error.message });
   }
 };
 
-// 6. Strict Role-Based Login (Email + Password)
-exports.loginUser = async (req, res) => {
+// 5. GET /api/auth/me (Validates session and returns current profile)
+exports.getMe = async (req, res) => {
   try {
-    const { email, password, role } = req.body;
-    const user = await User.findOne({ email });
-
-    if (!user) return res.status(404).json({ message: 'User not found' });
-    
-    if (role && user.role !== role) {
-      return res.status(403).json({ message: `Access Denied: You are registered as a ${user.role}, not a ${role}.` });
+    if (!req.user) {
+      return res.status(401).json({ success: false, message: 'Not authenticated' });
     }
-
-    if (!user.isVerified) {
-      return res.status(403).json({ message: 'Please verify your OTP before logging in.' });
-    }
-
-    if (await bcrypt.compare(password, user.password)) {
-      res.status(200).json({ 
-        _id: user.id, 
-        id: user.id,
-        name: user.name, 
-        email: user.email, 
-        role: user.role, 
-        token: generateToken(user._id, user.role) 
-      });
-    } else {
-      res.status(401).json({ message: 'Invalid email or password' });
-    }
+    return res.status(200).json({
+      success: true,
+      user: {
+        _id: req.user._id || req.user.id,
+        id: req.user._id || req.user.id,
+        name: req.user.name,
+        email: req.user.email,
+        phone: req.user.phone,
+        role: req.user.role || req.userRole,
+        isVerified: req.user.isVerified !== false,
+        preferences: req.user.preferences
+      }
+    });
   } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error('[Auth] getMe Error:', error);
+    return res.status(500).json({ success: false, message: 'Server error retrieving profile' });
+  }
+};
+
+// 6. Register User (Backward compatibility)
+exports.registerUser = async (req, res) => {
+  try {
+    const { name, email, phone, role } = req.body;
+    if (email && !isValidEmail(email)) {
+      return res.status(400).json({ success: false, message: 'Invalid email address' });
+    }
+    if (phone) {
+      return exports.sendPhoneOtp(req, res);
+    }
+    if (email) {
+      return exports.sendEmailOtp(req, res);
+    }
+    return res.status(400).json({ success: false, message: 'Phone number or email address is required.' });
+  } catch (error) {
+    console.error('[Auth] Register error:', error);
+    return res.status(500).json({ success: false, message: 'Server error during registration' });
+  }
+};
+
+// 7. Login User (Backward compatibility)
+exports.loginUser = async (req, res) => {
+  const { email, phone } = req.body;
+  if (phone) return exports.sendPhoneOtp(req, res);
+  if (email) return exports.sendEmailOtp(req, res);
+  return res.status(400).json({ success: false, message: 'Phone or email is required.' });
+};
+
+// 8. Verify OTP (General router fallback)
+exports.verifyOTP = async (req, res) => {
+  const { email, phone } = req.body;
+  if (phone) return exports.verifyPhoneOtp(req, res);
+  if (email) return exports.verifyEmailOtp(req, res);
+  return res.status(400).json({ success: false, message: 'Phone or email identifier is required.' });
+};
+
+// 9. Google OAuth Callback / Exchange
+exports.googleAuth = async (req, res) => {
+  try {
+    const { email, name, role = 'Patient' } = req.body;
+    if (!email) {
+      return res.status(400).json({ success: false, message: 'Google authentication requires email' });
+    }
+    const cleanEmail = email.trim().toLowerCase();
+    let user = await User.findOne({ email: cleanEmail });
+    if (!user) {
+      user = await User.create({
+        name: name || cleanEmail.split('@')[0],
+        email: cleanEmail,
+        password: await bcrypt.hash(Math.random().toString(36), 10),
+        role: role || 'Patient',
+        isVerified: true
+      });
+    }
+    const token = generateToken(user._id, user.role);
+    return res.status(200).json({
+      success: true,
+      token,
+      user: {
+        _id: user._id,
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        role: user.role,
+        isVerified: true,
+        preferences: user.preferences
+      }
+    });
+  } catch (error) {
+    console.error('[Auth] Google Auth Error:', error);
+    return res.status(500).json({ success: false, message: 'Google authentication failed', error: error.message });
   }
 };

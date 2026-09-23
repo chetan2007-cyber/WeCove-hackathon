@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { CheckCircle2, Phone, RefreshCcw, AlertCircle, ArrowLeft } from "lucide-react";
+import { CheckCircle2, Phone, Mail, RefreshCcw, AlertCircle, ArrowLeft, Info } from "lucide-react";
 import { SectionLabel, SoftButton } from "../components/shared";
 import authService, { normalizeIndianPhone } from "../services/authService";
 import { useLanguage } from "../context/LanguageContext";
@@ -10,10 +10,14 @@ export default function Verify() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Retrieve phone, role, and name passed from Login or Register
+  // Retrieve state passed from Login or Register
   const rawPhone = location.state?.phone || "";
+  const email = (location.state?.email || "").trim().toLowerCase();
   const role = location.state?.role || "Patient";
   const name = location.state?.name || "";
+  const authMethod = location.state?.authMethod || (email ? "email" : "phone");
+  const initialDevOtp = location.state?.devOtp || "";
+  const initialNotice = location.state?.providerNotice || "";
 
   const { normalized: phone } = normalizeIndianPhone(rawPhone);
 
@@ -23,6 +27,8 @@ export default function Verify() {
   const [countdown, setCountdown] = useState(60);
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
+  const [devOtpHint, setDevOtpHint] = useState(initialDevOtp);
+  const [gatewayNotice, setGatewayNotice] = useState(initialNotice);
 
   const inputRefs = useRef([]);
 
@@ -43,28 +49,24 @@ export default function Verify() {
   }, []);
 
   const handleDigitChange = (index, value) => {
-    // Only allow numbers
     const cleanValue = value.replace(/\D/g, "");
     if (!cleanValue && value !== "") return;
 
     const newDigits = [...otpDigits];
-    newDigits[index] = cleanValue.slice(-1); // Take the latest single digit
+    newDigits[index] = cleanValue.slice(-1);
     setOtpDigits(newDigits);
     setErrorMsg("");
 
-    // Auto-advance to next box if digit is entered
     if (cleanValue && index < 5) {
       inputRefs.current[index + 1]?.focus();
     }
 
-    // Auto-submit if all 6 digits are filled
     if (newDigits.every(d => d !== "") && index === 5) {
       triggerVerification(newDigits.join(""));
     }
   };
 
   const handleKeyDown = (index, e) => {
-    // On Backspace on an empty box, move back to previous box
     if (e.key === "Backspace" && !otpDigits[index] && index > 0) {
       inputRefs.current[index - 1]?.focus();
     }
@@ -81,7 +83,6 @@ export default function Verify() {
     }
     setOtpDigits(newDigits);
 
-    // Focus last filled box
     const nextIdx = Math.min(pasted.length, 5);
     inputRefs.current[nextIdx]?.focus();
 
@@ -102,16 +103,22 @@ export default function Verify() {
     setSuccessMsg("");
 
     try {
-      const user = await authService.verifyPhoneOtp(phone, code, role, name);
+      let user;
+      if (authMethod === "email") {
+        user = await authService.verifyEmailOtp(email, code, role, name);
+      } else {
+        user = await authService.verifyPhoneOtp(phone, code, role, name);
+      }
+
       setSuccessMsg("Verification successful! Preparing your care space...");
 
       setTimeout(() => {
         const userRole = (user.role || role).toLowerCase();
-        if (userRole === "patient") navigate("/patient");
-        else if (userRole === "caregiver") navigate("/caregiver");
-        else if (userRole.includes("health") || userRole.includes("clinic")) navigate("/healthcare");
-        else navigate("/patient");
-      }, 1200);
+        if (userRole === "patient") navigate("/patient", { replace: true });
+        else if (userRole === "caregiver") navigate("/caregiver", { replace: true });
+        else if (userRole.includes("health") || userRole.includes("clinic")) navigate("/healthcare", { replace: true });
+        else navigate("/patient", { replace: true });
+      }, 1000);
     } catch (err) {
       setErrorMsg(err.message || "Invalid verification code. Please check and try again.");
       setSubmitting(false);
@@ -125,8 +132,17 @@ export default function Verify() {
     setSuccessMsg("");
 
     try {
-      await authService.sendPhoneOtp(phone);
-      setSuccessMsg("A new verification code has been sent.");
+      if (authMethod === "email") {
+        const res = await authService.sendEmailOtp(email, role);
+        setSuccessMsg("A new verification code has been sent to your email.");
+        if (res.devOtp) setDevOtpHint(res.devOtp);
+        if (res.message) setGatewayNotice(res.message);
+      } else {
+        const res = await authService.sendPhoneOtp(phone, role);
+        setSuccessMsg("A new verification code has been sent to your phone.");
+        if (res.devOtp) setDevOtpHint(res.devOtp);
+        if (res.message) setGatewayNotice(res.message);
+      }
       setCountdown(60);
       setOtpDigits(["", "", "", "", "", ""]);
       inputRefs.current[0]?.focus();
@@ -137,8 +153,8 @@ export default function Verify() {
     }
   };
 
-  // If accessed directly without a phone number
-  if (!phone) {
+  // If accessed directly without phone or email
+  if (!phone && !email) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#FAFBFB] p-5 text-[#222B32]">
         <div className="text-center max-w-sm">
@@ -146,18 +162,18 @@ export default function Verify() {
             <AlertCircle className="h-7 w-7" />
           </div>
           <SectionLabel>Missing Information</SectionLabel>
-          <h2 className="font-serif text-3xl text-[#162D3D] mb-4 mt-2">No phone number found</h2>
-          <p className="text-sm text-[#6F858D] mb-8">Please start with your phone number to sign in or register.</p>
+          <h2 className="font-serif text-3xl text-[#162D3D] mb-4 mt-2">No contact details found</h2>
+          <p className="text-sm text-[#6F858D] mb-8">Please start from the sign in or register page.</p>
           <SoftButton onClick={() => navigate("/login")}>Go to Sign In</SoftButton>
         </div>
       </div>
     );
   }
 
-  // Format phone display nicely: +91 XXXXX XXXXX
-  const formattedDisplay = phone.length >= 13
-    ? `${phone.slice(0, 3)} ${phone.slice(3, 8)} ${phone.slice(8)}`
-    : phone;
+  // Format destination display nicely
+  const formattedDisplay = authMethod === "email"
+    ? email
+    : (phone.length >= 13 ? `${phone.slice(0, 3)} ${phone.slice(3, 8)} ${phone.slice(8)}` : phone);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-[#FAFBFB] px-5 py-12 text-[#222B32]">
@@ -165,7 +181,7 @@ export default function Verify() {
         
         {/* Icon Header */}
         <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-[#E5F0EE] text-[#0F7673]">
-          <Phone className="h-7 w-7" />
+          {authMethod === "email" ? <Mail className="h-7 w-7" /> : <Phone className="h-7 w-7" />}
         </div>
 
         {/* Copy */}
@@ -180,6 +196,20 @@ export default function Verify() {
             <span className="font-semibold text-[#162D3D] tracking-wide">{formattedDisplay}</span>
           </p>
         </div>
+
+        {/* Gateway notice / hints */}
+        {devOtpHint && (
+          <div className="mt-4 p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs flex items-center justify-center gap-2">
+            <Info className="w-4 h-4 flex-shrink-0" />
+            <span>Development Mode OTP: <strong className="font-mono text-sm tracking-widest">{devOtpHint}</strong></span>
+          </div>
+        )}
+
+        {gatewayNotice && !gatewayNotice.includes("dispatched") && (
+          <div className="mt-2 text-[11px] text-[#78909A] bg-slate-50 border border-slate-200/60 rounded-lg p-2 text-left">
+            ℹ️ {gatewayNotice}
+          </div>
+        )}
 
         {/* Status Messages */}
         {errorMsg && (
@@ -225,7 +255,7 @@ export default function Verify() {
           </SoftButton>
         </form>
 
-        {/* Resend & Change Phone Number */}
+        {/* Resend & Change Target */}
         <div className="mt-8 flex flex-col items-center gap-4 text-xs font-medium text-[#78909A]">
           <div>
             Didn't receive a code?{" "}
@@ -249,7 +279,7 @@ export default function Verify() {
             className="inline-flex items-center gap-1 text-[#47616A] hover:text-[#162D3D] transition-colors"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
-            <span>Change phone number</span>
+            <span>Change {authMethod === "email" ? "email address" : "phone number"}</span>
           </button>
         </div>
       </div>

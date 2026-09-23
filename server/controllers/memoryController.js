@@ -153,11 +153,15 @@ exports.reviewMemory = async (req, res) => {
   }
 };
 
-// 3. Fetch Patient Memories for Album (FIXED DATA LEAK)
+// 3. Fetch Patient Memories for Album (STRICT PATIENT ISOLATION)
 exports.getPatientMemories = async (req, res) => {
   try {
     const { patientId } = req.params;
     
+    if (req.user && req.userRole === 'Patient' && String(req.userId) !== String(patientId)) {
+      return res.status(403).json({ success: false, message: 'Access denied: You cannot access another patient\'s memories' });
+    }
+
     // STRICT FILTER: Only returns memories belonging to THIS specific patient.
     const memories = await MemoryItem.find({ patientId, status: 'confirmed' }).sort({ createdAt: -1 });
 
@@ -168,11 +172,15 @@ exports.getPatientMemories = async (req, res) => {
   }
 };
 
-// 4. Fetch Memory Graph (FIXED DATA LEAK)
+// 4. Fetch Memory Graph (STRICT PATIENT ISOLATION)
 exports.getMemoryGraph = async (req, res) => {
   try {
     const { id } = req.params;
     
+    if (req.user && req.userRole === 'Patient' && String(req.userId) !== String(id)) {
+      return res.status(403).json({ success: false, message: 'Access denied: You cannot access another patient\'s constellation graph' });
+    }
+
     // STRICT FILTER: Only returns nodes for THIS specific patient.
     const nodes = await ConstellationNode.find({ patientId: id }).populate('relatedMemories');
     

@@ -1,12 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const gameController = require('../controllers/gameController');
+const { verifyToken } = require('../middlewares/authMiddleware');
 
-// Existing routes (like saving results) stay here...
-// router.post('/result', gameController.saveResult);
-
-// Add the new Personalization Engine route:
-router.get('/daily/:patientId', gameController.generateDailyActivity);
-router.post('/result', gameController.saveResult);
+// Protected game personalization and result tracking
+router.get('/daily/:patientId', verifyToken, gameController.generateDailyActivity);
+router.post('/result', verifyToken, gameController.saveResult);
 
 module.exports = router;

@@ -26,6 +26,10 @@ exports.updatePreferences = async (req, res) => {
     const { id } = req.params;
     const { comfortMode, largeText } = req.body;
 
+    if (req.user && req.userRole === 'Patient' && String(req.userId) !== String(id)) {
+      return res.status(403).json({ success: false, message: 'Access denied: You can only update your own preferences' });
+    }
+
     const updatedUser = await User.findByIdAndUpdate(
       id,
       { 
@@ -89,8 +93,12 @@ exports.getPatientDetails = async (req, res) => {
   try {
     const { id } = req.params;
     
+    if (req.user && req.userRole === 'Patient' && String(req.userId) !== String(id)) {
+      return res.status(403).json({ success: false, message: 'Access denied: You cannot view another patient\'s clinical record' });
+    }
+
     // Aggregate all patient data for the caregiver dashboard
-    const patient = await User.findById(id).select('-password');
+    const patient = await User.findById(id).select('-password -otp');
     const metrics = await CognitiveMetric.findOne({ patientId: id });
     const memoryCount = await MemoryItem.countDocuments({ patientId: id, status: 'confirmed' });
 

@@ -22,6 +22,7 @@ const User = require('./models/User');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const { apiLimiter, authLimiter, companionLimiter } = require('./middlewares/rateLimiter');
+const { verifyToken, requireRole } = require('./middlewares/authMiddleware');
 
 const app = express();
 
@@ -78,8 +79,8 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Quick route to fetch real patients for Caregiver selection
-app.get('/api/patients', async (req, res) => {
+// Protected route: fetch patients for Caregiver / Clinician selection
+app.get('/api/patients', verifyToken, requireRole(['Caregiver', 'HealthcareWorker', 'Admin']), async (req, res) => {
   try {
     const patients = await User.find({ role: 'Patient' }).select('-password -otp');
     res.status(200).json(patients);
@@ -88,9 +89,12 @@ app.get('/api/patients', async (req, res) => {
   }
 });
 
-// Caregiver Activity Endpoints
-app.get('/api/patients/:id/activity', async (req, res) => {
+// Caregiver / Patient Activity Endpoints
+app.get('/api/patients/:id/activity', verifyToken, async (req, res) => {
   try {
+    if (req.userRole === 'Patient' && String(req.userId) !== String(req.params.id)) {
+      return res.status(403).json({ success: false, message: 'Access denied: You cannot view another patient\'s activity' });
+    }
     const activities = await GameResult.find({ 
       patientId: req.params.id,
       gameName: { $exists: true } 
@@ -101,7 +105,7 @@ app.get('/api/patients/:id/activity', async (req, res) => {
   }
 });
 
-app.get('/api/caregiver-dashboard/activity/:id', async (req, res) => {
+app.get('/api/caregiver-dashboard/activity/:id', verifyToken, requireRole(['Caregiver', 'HealthcareWorker', 'Admin']), async (req, res) => {
   try {
     const activities = await GameResult.find({ 
       patientId: req.params.id,
@@ -114,7 +118,7 @@ app.get('/api/caregiver-dashboard/activity/:id', async (req, res) => {
 });
 
 // Cognitive Trends
-app.get('/api/caregiver-dashboard/progress/:id', async (req, res) => {
+app.get('/api/caregiver-dashboard/progress/:id', verifyToken, requireRole(['Caregiver', 'HealthcareWorker', 'Admin']), async (req, res) => {
   try {
     const trends = await CognitiveMetric.find({ patientId: req.params.id })
       .sort({ createdAt: 1 })
@@ -125,8 +129,11 @@ app.get('/api/caregiver-dashboard/progress/:id', async (req, res) => {
   }
 });
 
-app.get('/api/patients/:id/cognitive-trends', async (req, res) => {
+app.get('/api/patients/:id/cognitive-trends', verifyToken, async (req, res) => {
   try {
+    if (req.userRole === 'Patient' && String(req.userId) !== String(req.params.id)) {
+      return res.status(403).json({ success: false, message: 'Access denied: You cannot view another patient\'s cognitive trends' });
+    }
     const trends = await CognitiveMetric.find({ patientId: req.params.id })
       .sort({ createdAt: 1 })
       .limit(7); 
@@ -138,7 +145,7 @@ app.get('/api/patients/:id/cognitive-trends', async (req, res) => {
 });
 
 // Family Messages & Notes
-app.get('/api/patients/:id/family-messages', async (req, res) => {
+app.get('/api/patients/:id/family-messages', verifyToken, async (req, res) => {
   try {
     res.status(200).json([]);
   } catch (error) {
@@ -146,7 +153,7 @@ app.get('/api/patients/:id/family-messages', async (req, res) => {
   }
 });
 
-app.get('/api/patients/:id/notes', async (req, res) => {
+app.get('/api/patients/:id/notes', verifyToken, async (req, res) => {
   try {
     res.status(200).json([]);
   } catch (error) {
@@ -154,8 +161,11 @@ app.get('/api/patients/:id/notes', async (req, res) => {
   }
 });
 
-app.get('/api/patients/:id/preferences', async (req, res) => {
+app.get('/api/patients/:id/preferences', verifyToken, async (req, res) => {
   try {
+    if (req.userRole === 'Patient' && String(req.userId) !== String(req.params.id)) {
+      return res.status(403).json({ success: false, message: 'Access denied' });
+    }
     const user = await User.findById(req.params.id).select('preferences');
     res.status(200).json(user?.preferences || { comfortMode: false, largeText: true });
   } catch (error) {
@@ -163,9 +173,12 @@ app.get('/api/patients/:id/preferences', async (req, res) => {
   }
 });
 
-app.post('/api/games/save', async (req, res) => {
+app.post('/api/games/save', verifyToken, async (req, res) => {
   try {
-    const { patientId, gameName, score, accuracy } = req.body;
+    let { patientId, gameName, score, accuracy } = req.body;
+    if (req.userRole === 'Patient') {
+      patientId = String(req.userId);
+    }
     const newGame = new GameResult({ patientId, gameName, score, accuracy });
     await newGame.save();
 
@@ -179,8 +192,8 @@ app.post('/api/games/save', async (req, res) => {
   }
 });
 
-// Clinical Report Synthesis (Strict DPDP/Medical Compliance)
-app.get('/api/patients/:id/report', async (req, res) => {
+// Clinical Report Synthesis (Strict DPDP/Medical Compliance + Authorization)
+app.get('/api/patients/:id/report', verifyToken, requireRole(['HealthcareWorker', 'Caregiver', 'Admin']), async (req, res) => {
   try {
     const { id } = req.params;
     const { from, to } = req.query;
@@ -277,9 +290,12 @@ app.post('/api/companion/talk', async (req, res) => {
 });
 
 // Adaptive Cognitive Engine
-app.get('/api/engine/adaptive-difficulty/:patientId', async (req, res) => {
+app.get('/api/engine/adaptive-difficulty/:patientId', verifyToken, async (req, res) => {
   try {
     const { patientId } = req.params;
+    if (req.userRole === 'Patient' && String(req.userId) !== String(patientId)) {
+      return res.status(403).json({ success: false, message: 'Access denied: You cannot access another patient\'s adaptive profile' });
+    }
 
     const recentGames = await GameResult.find({ 
       patientId, 

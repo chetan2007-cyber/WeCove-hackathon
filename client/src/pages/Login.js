@@ -1,17 +1,19 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Phone, ArrowRight, RefreshCcw, ShieldCheck, AlertCircle, HeartHandshake, UserRound, Stethoscope } from "lucide-react";
+import { Phone, Mail, ArrowRight, RefreshCcw, ShieldCheck, AlertCircle, HeartHandshake, UserRound, Stethoscope } from "lucide-react";
 import { SectionLabel, SoftButton, BrandMark } from "../components/shared";
 import { useLanguage } from '../context/LanguageContext';
 import LanguageSelector from '../components/LanguageSelector';
-import authService, { normalizeIndianPhone } from "../services/authService";
+import authService, { normalizeIndianPhone, isValidEmail } from "../services/authService";
 
 export default function Login() {
   const { t } = useLanguage();
   const navigate = useNavigate();
 
+  const [authMethod, setAuthMethod] = useState("phone"); // 'phone' | 'email'
   const [selectedRole, setSelectedRole] = useState("Patient");
   const [phoneNumber, setPhoneNumber] = useState("");
+  const [emailAddress, setEmailAddress] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
@@ -42,18 +44,22 @@ export default function Login() {
 
     const { isValid, normalized, error } = normalizeIndianPhone(phoneNumber);
     if (!isValid) {
-      setErrorMsg(error || "Please enter a valid 10-digit Indian phone number.");
+      setErrorMsg(error || "Please enter a valid 10-digit Indian mobile number.");
       return;
     }
 
     setSubmitting(true);
 
     try {
-      await authService.sendPhoneOtp(normalized);
+      const res = await authService.sendPhoneOtp(normalized, selectedRole);
       navigate("/verify", {
         state: {
           phone: normalized,
-          role: selectedRole
+          role: selectedRole,
+          authMethod: "phone",
+          smsDelivered: res.smsDelivered,
+          devOtp: res.devOtp,
+          providerNotice: res.message
         }
       });
     } catch (err) {
@@ -62,21 +68,34 @@ export default function Login() {
     }
   };
 
-  // Quick Demo Access for Testing / Evaluation
-  const handleQuickDemo = (role) => {
-    const demoUser = {
-      _id: role === 'Patient' ? '11111111-1111-1111-1111-111111111111' : (role === 'Caregiver' ? '22222222-2222-2222-2222-222222222222' : '33333333-3333-3333-3333-333333333333'),
-      id: role === 'Patient' ? '11111111-1111-1111-1111-111111111111' : (role === 'Caregiver' ? '22222222-2222-2222-2222-222222222222' : '33333333-3333-3333-3333-333333333333'),
-      name: role === 'Patient' ? 'Chetan Sharma' : (role === 'Caregiver' ? 'Ananya Sharma' : 'Dr. Barua'),
-      role: role,
-      phone: '+919876543210',
-      isVerified: true
-    };
-    authService.persistSession(demoUser, 'demo-session-token');
+  const handleEmailSubmit = async (e) => {
+    e.preventDefault();
+    setErrorMsg("");
 
-    if (role === 'Patient') navigate('/patient');
-    else if (role === 'Caregiver') navigate('/caregiver');
-    else navigate('/healthcare');
+    const cleanEmail = emailAddress.trim().toLowerCase();
+    if (!isValidEmail(cleanEmail)) {
+      setErrorMsg("Please enter a valid email address (e.g. name@domain.com).");
+      return;
+    }
+
+    setSubmitting(true);
+
+    try {
+      const res = await authService.sendEmailOtp(cleanEmail, selectedRole);
+      navigate("/verify", {
+        state: {
+          email: cleanEmail,
+          role: selectedRole,
+          authMethod: "email",
+          emailDelivered: res.emailDelivered,
+          devOtp: res.devOtp,
+          providerNotice: res.message
+        }
+      });
+    } catch (err) {
+      setErrorMsg(err.message || "Failed to send verification email. Please check your address.");
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -159,6 +178,34 @@ export default function Login() {
               </div>
             </div>
 
+            {/* Auth Method Switcher: Phone vs Email */}
+            <div className="mt-6 flex rounded-xl bg-[#EFEFEF]/70 p-1 border border-[#DCE5E3]">
+              <button
+                type="button"
+                onClick={() => { setAuthMethod("phone"); setErrorMsg(""); }}
+                className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-xs font-bold rounded-lg transition-all ${
+                  authMethod === "phone"
+                    ? "bg-white text-[#0F7673] shadow-sm"
+                    : "text-[#6F858D] hover:text-[#162D3D]"
+                }`}
+              >
+                <Phone className="w-3.5 h-3.5" />
+                <span>Continue with Phone</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => { setAuthMethod("email"); setErrorMsg(""); }}
+                className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-xs font-bold rounded-lg transition-all ${
+                  authMethod === "email"
+                    ? "bg-white text-[#0F7673] shadow-sm"
+                    : "text-[#6F858D] hover:text-[#162D3D]"
+                }`}
+              >
+                <Mail className="w-3.5 h-3.5" />
+                <span>Continue with Email</span>
+              </button>
+            </div>
+
             {/* Error Message */}
             {errorMsg && (
               <div className="mt-6 p-4 rounded-xl text-sm font-semibold bg-[#F6E9E6] text-[#9B4D45] border border-[#9B4D45]/20 flex items-center gap-2">
@@ -167,76 +214,87 @@ export default function Login() {
               </div>
             )}
 
-            {/* Phone Number Input Form */}
-            <form onSubmit={handlePhoneSubmit} className="mt-6 space-y-5">
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-[#6F858D] mb-2">
-                  Mobile Number (+91)
-                </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-sm font-semibold text-[#162D3D] gap-1.5">
-                    <Phone className="w-4 h-4 text-[#0F7673]" />
-                    <span>+91</span>
+            {/* Phone Authentication Form */}
+            {authMethod === "phone" && (
+              <form onSubmit={handlePhoneSubmit} className="mt-6 space-y-5">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-[#6F858D] mb-2">
+                    Mobile Number (+91)
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-sm font-semibold text-[#162D3D] gap-1.5">
+                      <Phone className="w-4 h-4 text-[#0F7673]" />
+                      <span>+91</span>
+                    </div>
+                    <input
+                      type="tel"
+                      required
+                      placeholder="98765 43210"
+                      maxLength={10}
+                      value={phoneNumber}
+                      onChange={(e) => {
+                        setPhoneNumber(e.target.value.replace(/\D/g, ""));
+                        setErrorMsg("");
+                      }}
+                      className="w-full h-14 pl-20 pr-4 rounded-2xl border border-[#DCE5E3] bg-white text-lg font-medium text-[#162D3D] outline-none transition focus:border-[#0F7673] focus:ring-2 focus:ring-[#0F7673]/10"
+                    />
                   </div>
-                  <input
-                    type="tel"
-                    required
-                    placeholder="98765 43210"
-                    maxLength={10}
-                    value={phoneNumber}
-                    onChange={(e) => {
-                      setPhoneNumber(e.target.value.replace(/\D/g, ""));
-                      setErrorMsg("");
-                    }}
-                    className="w-full h-14 pl-20 pr-4 rounded-2xl border border-[#DCE5E3] bg-white text-lg font-medium text-[#162D3D] outline-none transition focus:border-[#0F7673] focus:ring-2 focus:ring-[#0F7673]/10"
-                  />
+                  <p className="mt-1.5 text-xs text-[#78909A]">
+                    We will send a 6-digit verification code to your phone via SMS.
+                  </p>
                 </div>
-                <p className="mt-1.5 text-xs text-[#78909A]">
-                  We will send a 6-digit verification code to your phone.
-                </p>
-              </div>
 
-              <SoftButton
-                type="submit"
-                className="w-full h-13 text-base"
-                disabled={submitting || phoneNumber.length < 10}
-                icon={submitting ? <RefreshCcw className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
-              >
-                {submitting ? "Sending verification code..." : "Send Verification Code"}
-              </SoftButton>
-            </form>
+                <SoftButton
+                  type="submit"
+                  className="w-full h-13 text-base"
+                  disabled={submitting || phoneNumber.length < 10}
+                  icon={submitting ? <RefreshCcw className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
+                >
+                  {submitting ? "Sending verification code..." : "Send Verification Code"}
+                </SoftButton>
+              </form>
+            )}
 
-            {/* Quick Demo Shortcuts for Testing */}
-            <div className="mt-8 border-t border-slate-200/80 pt-6">
-              <span className="text-xs font-bold uppercase tracking-wider text-[#78909A] block mb-3 text-center">
-                Quick Evaluation Mode
-              </span>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleQuickDemo('Patient')}
-                  className="flex-1 py-2 text-xs font-semibold rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition"
-                >
-                  Demo Patient
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleQuickDemo('Caregiver')}
-                  className="flex-1 py-2 text-xs font-semibold rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition"
-                >
-                  Demo Caregiver
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleQuickDemo('HealthcareWorker')}
-                  className="flex-1 py-2 text-xs font-semibold rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition"
-                >
-                  Demo Clinician
-                </button>
-              </div>
-            </div>
+            {/* Email Authentication Form */}
+            {authMethod === "email" && (
+              <form onSubmit={handleEmailSubmit} className="mt-6 space-y-5">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-[#6F858D] mb-2">
+                    Email Address
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-sm font-semibold text-[#162D3D]">
+                      <Mail className="w-4 h-4 text-[#0F7673]" />
+                    </div>
+                    <input
+                      type="email"
+                      required
+                      placeholder="caregiver@family.org"
+                      value={emailAddress}
+                      onChange={(e) => {
+                        setEmailAddress(e.target.value);
+                        setErrorMsg("");
+                      }}
+                      className="w-full h-14 pl-12 pr-4 rounded-2xl border border-[#DCE5E3] bg-white text-base font-medium text-[#162D3D] outline-none transition focus:border-[#0F7673] focus:ring-2 focus:ring-[#0F7673]/10"
+                    />
+                  </div>
+                  <p className="mt-1.5 text-xs text-[#78909A]">
+                    We will send a 6-digit verification code to your email inbox.
+                  </p>
+                </div>
 
-            <div className="mt-6 text-center text-xs text-[#6F858D]">
+                <SoftButton
+                  type="submit"
+                  className="w-full h-13 text-base"
+                  disabled={submitting || !emailAddress.trim()}
+                  icon={submitting ? <RefreshCcw className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
+                >
+                  {submitting ? "Sending verification code..." : "Send Verification Code"}
+                </SoftButton>
+              </form>
+            )}
+
+            <div className="mt-8 text-center text-xs text-[#6F858D]">
               New to AI Memory Care?{" "}
               <button
                 type="button"
