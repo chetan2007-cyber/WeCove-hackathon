@@ -12,7 +12,7 @@ export function normalizeIndianPhone(phone) {
   }
 
   // Remove whitespace, dashes, parens
-  let cleaned = phone.replace(/[\s\-\(\)]/g, '');
+  let cleaned = phone.replace(/[\s\-()]/g, '');
 
   // Handle leading 0
   if (cleaned.startsWith('0')) {
@@ -208,6 +208,18 @@ class AuthService {
     }
   }
 
+  getStoredUser() {
+    return this.getCurrentUser();
+  }
+
+  getStoredToken() {
+    try {
+      return localStorage.getItem('token');
+    } catch (e) {
+      return null;
+    }
+  }
+
   isAuthenticated() {
     const user = this.getCurrentUser();
     const token = localStorage.getItem('token');
@@ -224,6 +236,7 @@ class AuthService {
     } finally {
       localStorage.removeItem('user');
       localStorage.removeItem('token');
+      localStorage.removeItem('user_role');
       localStorage.removeItem('activePatient');
     }
   }

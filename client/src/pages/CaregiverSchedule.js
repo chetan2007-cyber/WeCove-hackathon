@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Clock, CheckCircle2, AlertCircle, Plus, Send } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, AlertCircle, Send } from 'lucide-react';
 import caregiverService from '../services/caregiverService';
 import reminderService from '../services/reminderService';
 

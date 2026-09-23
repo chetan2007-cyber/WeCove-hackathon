@@ -13,6 +13,23 @@ export default function PatientSettings() {
   const user = JSON.parse(localStorage.getItem('user') || '{}');
   const patientId = user?._id || user?.id || '11111111-1111-1111-1111-111111111111';
 
+  useEffect(() => {
+    const loadPreferences = async () => {
+      try {
+        const prefs = await patientService.getPreferences(patientId);
+        if (prefs) {
+          if (typeof prefs.comfort_mode !== 'undefined') setComfortMode(Boolean(prefs.comfort_mode));
+          else if (typeof prefs.comfortMode !== 'undefined') setComfortMode(Boolean(prefs.comfortMode));
+          if (typeof prefs.large_text !== 'undefined') setLargeText(Boolean(prefs.large_text));
+          else if (typeof prefs.largeText !== 'undefined') setLargeText(Boolean(prefs.largeText));
+        }
+      } catch (e) {
+        console.warn('Failed to load patient preferences', e);
+      }
+    };
+    loadPreferences();
+  }, [patientId]);
+
   const handleToggleComfort = async () => {
     const nextVal = !comfortMode;
     setComfortMode(nextVal);

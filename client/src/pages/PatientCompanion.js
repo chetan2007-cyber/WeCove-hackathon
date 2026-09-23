@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Mic2, Volume2, Send, ArrowLeft, Sparkles, CheckCircle2 } from "lucide-react";
+import { Mic2, Volume2, Send, ArrowLeft, CheckCircle2 } from "lucide-react";
 import { cx, SectionLabel } from "../components/shared";
 import aiService from "../services/aiService";
 import voiceService from "../services/voiceService";

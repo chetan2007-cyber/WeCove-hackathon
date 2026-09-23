@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  Activity, ArrowRight, Bell, BookOpen, Brain, Calendar, CheckCircle2,
-  Clock, Heart, Images, MessageCircle, Plus, RefreshCcw, Send, Settings,
-  ShieldCheck, Sparkles, Trash2, UserRound, Users, Volume2, LogOut, FileText
+  Activity, Brain, Calendar, CheckCircle2,
+  Images, MessageCircle, Plus, Send,
+  Sparkles, Trash2, UserRound, Volume2, LogOut, FileText
 } from "lucide-react";
 import { BrandMark, SectionLabel } from "../components/shared";
 import { useLanguage } from '../context/LanguageContext';
@@ -74,18 +74,27 @@ export default function CaregiverDashboard() {
 
     const loadPatientData = async () => {
       try {
-        const [mems, rems, acts, msgs, nts] = await Promise.all([
+        const [mems, rems, acts, nts, trends] = await Promise.all([
           memoryService.getPatientMemories(selectedPatientId),
           reminderService.getReminders(selectedPatientId),
           caregiverService.getPatientActivity(selectedPatientId),
-          caregiverService.getPatientActivity(selectedPatientId), // family messages placeholder
-          caregiverService.getNotes(selectedPatientId)
+          caregiverService.getNotes(selectedPatientId),
+          caregiverService.getCognitiveTrends(selectedPatientId).catch(() => [])
         ]);
 
         setMemories(mems);
         setReminders(rems);
         setActivities(acts);
         setNotes(nts);
+
+        if (Array.isArray(trends) && trends.length > 0) {
+          const avg = Math.round(trends.reduce((s, t) => s + (t.accuracy || 0), 0) / trends.length);
+          setInsight({
+            accuracy: avg,
+            recentGamesCount: trends.length,
+            insight: `Patient shows an average engagement accuracy of ${avg}% across ${trends.length} recorded sessions.`
+          });
+        }
 
         // Load family messages
         const localMsgs = JSON.parse(localStorage.getItem('hackathon_family') || '[]');

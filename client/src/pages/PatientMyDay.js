@@ -1,11 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { ArrowLeft, Clock, Sun, Cloud, Bell, CheckCircle2, RotateCcw, Plus, Pill, Heart, Sparkles } from 'lucide-react';
+import { ArrowLeft, Clock, Sun, Cloud, Bell, CheckCircle2, Plus, Pill } from 'lucide-react';
 import reminderService from '../services/reminderService';
-import patientService from '../services/patientService';
 import notificationService from '../services/notificationService';
-import { SectionLabel, SoftButton } from '../components/shared';
+import { SectionLabel } from '../components/shared';
 
 export default function PatientMyDay() {
   const navigate = useNavigate();
@@ -27,18 +26,18 @@ export default function PatientMyDay() {
   }, []);
 
   // Fetch reminders
-  const loadReminders = async () => {
+  const loadReminders = useCallback(async () => {
     try {
       const data = await reminderService.getReminders(patientId);
       setReminders(data);
     } catch (e) {
       console.warn('Reminders fetch fallback', e);
     }
-  };
+  }, [patientId]);
 
   useEffect(() => {
     loadReminders();
-  }, [patientId]);
+  }, [loadReminders]);
 
   // Live alarm trigger: check every 5 seconds for due pending reminders
   useEffect(() => {

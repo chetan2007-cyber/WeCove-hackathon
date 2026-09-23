@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Mic, Volume2, Sparkles, CheckCircle2, RefreshCcw, Home, Award } from 'lucide-react';
+import { ArrowLeft, Mic, Sparkles, CheckCircle2, RefreshCcw, Award } from 'lucide-react';
 import memoryService from '../services/memoryService';
 import gameService from '../services/gameService';
 import voiceService from '../services/voiceService';

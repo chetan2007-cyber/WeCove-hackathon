@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Volume2, Sparkles, RefreshCcw, Camera } from 'lucide-react';
+import { ArrowLeft, Volume2, RefreshCcw, Camera } from 'lucide-react';
 import memoryService from '../services/memoryService';
 import voiceService from '../services/voiceService';
 import { useLanguage } from '../context/LanguageContext';

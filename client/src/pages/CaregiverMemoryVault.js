@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, UploadCloud, Sparkles, CheckCircle2, AlertCircle, RefreshCcw, Camera } from 'lucide-react';
+import { ArrowLeft, UploadCloud, Sparkles, CheckCircle2, AlertCircle, RefreshCcw } from 'lucide-react';
 import memoryService from '../services/memoryService';
 
 export default function CaregiverMemoryVault() {

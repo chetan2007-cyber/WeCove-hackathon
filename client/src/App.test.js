@@ -1,8 +1,15 @@
+import React from 'react';
 import { render, screen } from '@testing-library/react';
 import App from './App';
 
-test('renders learn react link', () => {
-  render(<App />);
-  const linkElement = screen.getByText(/learn react/i);
-  expect(linkElement).toBeInTheDocument();
+describe('Smriti Memory Care Application', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  test('renders the application without crashing and shows login screen', async () => {
+    render(<App />);
+    const patientOptions = await screen.findAllByText(/Patient/i);
+    expect(patientOptions.length).toBeGreaterThan(0);
+  });
 });

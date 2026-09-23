@@ -1,20 +1,18 @@
 import React, { useState, useEffect, useRef } from "react";
-import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { 
-  ArrowLeft, ArrowRight, ArrowUpRight, Bell, CalendarCheck2, CalendarDays, 
-  CheckCircle2, Clock3, Images, Mic2, MoreHorizontal, Plus, Send, 
-  Sparkles, Volume2, WifiOff, X, BookOpen, Camera, Image as ImageIcon, UploadCloud, 
+  ArrowLeft, ArrowRight, Bell, CalendarCheck2, CalendarDays, 
+  CheckCircle2, Clock3, Images, Mic2, Plus, Send, 
+  Sparkles, Volume2, X, Camera, Image as ImageIcon, UploadCloud,
   Loader2, Trash2, UserRound, Heart, Play, RotateCcw
 } from "lucide-react";
-import { cx, Avatar, SoftButton, SectionLabel, MemoryTile, Toast, TopBar, PatientShell } from "../components/shared";
+import { cx, SoftButton, SectionLabel, MemoryTile, Toast, TopBar, PatientShell } from "../components/shared";
 import { useLanguage } from '../context/LanguageContext';
 import LanguageSelector from '../components/LanguageSelector';
 import memoryService from '../services/memoryService';
 import reminderService from '../services/reminderService';
 import gameService from '../services/gameService';
 import aiService from '../services/aiService';
-import voiceService from '../services/voiceService';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 const SERVER_BASE_URL = API_BASE_URL.replace(/\/api\/?$/, '');
@@ -424,7 +422,61 @@ function PatientMemoriesView({ setView, showToast, memories, loading, user }) {
                 </div>
               )}
 
-              {/* ... other modal steps omitted for brevity ... */}
+              {uploadStep === 'camera' && (
+                <div className="flex flex-col gap-4 animate-in fade-in">
+                  <div className="relative rounded-2xl overflow-hidden bg-black aspect-video flex items-center justify-center">
+                    <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
+                  </div>
+                  <div className="flex gap-3">
+                    <button 
+                      onClick={capturePhoto} 
+                      className="flex-1 bg-[#0F7673] hover:bg-[#0A5A58] text-white font-bold py-3 rounded-2xl transition shadow-md active:scale-95"
+                    >
+                      Snap Photo
+                    </button>
+                    <button 
+                      onClick={() => { stopCamera(); setUploadStep('select'); }} 
+                      className="px-4 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-2xl transition"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {uploadStep === 'preview' && (
+                <div className="flex flex-col gap-4 animate-in fade-in">
+                  {previewUrl && (
+                    <div className="rounded-2xl overflow-hidden max-h-56 bg-slate-100 flex items-center justify-center border border-[#DCE5E3]">
+                      <img src={previewUrl} alt="Preview" className="max-h-56 w-auto object-contain rounded-xl" />
+                    </div>
+                  )}
+                  <input
+                    type="text"
+                    placeholder="Add a gentle note or title (optional)"
+                    value={caption}
+                    onChange={(e) => setCaption(e.target.value)}
+                    className="w-full px-4 py-3 rounded-xl border border-[#DCE5E3] text-sm text-[#162D3D] focus:outline-none focus:ring-2 focus:ring-[#0F7673]"
+                  />
+                  <div className="flex gap-3">
+                    <button 
+                      onClick={handleUpload} 
+                      disabled={isUploading}
+                      className="flex-1 bg-[#0F7673] hover:bg-[#0A5A58] text-white font-bold py-3 rounded-2xl transition shadow-md disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                      {isUploading && <Loader2 className="w-4 h-4 animate-spin" />}
+                      {isUploading ? "Uploading..." : "Save to Album"}
+                    </button>
+                    <button 
+                      onClick={() => setUploadStep('select')} 
+                      disabled={isUploading}
+                      className="px-4 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-2xl transition disabled:opacity-50"
+                    >
+                      Back
+                    </button>
+                  </div>
+                </div>
+              )}
 
             </div>
           </div>
@@ -439,16 +491,37 @@ function PatientMemoriesView({ setView, showToast, memories, loading, user }) {
               <img src={getMediaUrl(selectedMemory.mediaUrl)} alt="Memory detail" className="absolute inset-0 w-full h-full object-cover" />
               <div className="absolute inset-0 bg-gradient-to-t from-[#162D3D]/60 to-transparent" />
             </div>
-            <div className="w-full md:w-1/2 p-8 sm:p-10 flex flex-col justify-center">
+            <div className="w-full md:w-1/2 p-8 sm:p-10 flex flex-col justify-center relative">
               
               <div className="flex justify-between items-start mb-3">
                 <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#0F7673]">Memory Details</div>
+                
+                <button 
+                  onClick={handleDeleteMemory} 
+                  disabled={isDeleting}
+                  className="text-red-400 hover:text-red-600 transition disabled:opacity-50 p-1 rounded-lg"
+                  title="Delete Memory"
+                >
+                  {isDeleting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Trash2 className="w-5 h-5" />}
+                </button>
               </div>
 
-              <h2 className="font-serif text-3xl text-[#162D3D] mb-5 leading-tight">
+              <h2 className="font-serif text-3xl text-[#162D3D] mb-4 leading-tight">
                 {selectedMemory.caption || selectedMemory.title || "A familiar memory"}
                 <SpeakBtn text={selectedMemory.caption || selectedMemory.title || "A familiar memory"} />
               </h2>
+
+              <div className="mb-6 space-y-1.5 text-xs text-[#647980]">
+                {selectedMemory.aiSuggestions?.place && (
+                  <p><span className="font-semibold text-[#162D3D]">Location:</span> {selectedMemory.aiSuggestions.place}</p>
+                )}
+                {selectedMemory.aiSuggestions?.people?.length > 0 && (
+                  <p><span className="font-semibold text-[#162D3D]">People:</span> {selectedMemory.aiSuggestions.people.join(', ')}</p>
+                )}
+                {selectedMemory.createdAt && (
+                  <p><span className="font-semibold text-[#162D3D]">Date added:</span> {new Date(selectedMemory.createdAt).toLocaleDateString()}</p>
+                )}
+              </div>
               
               <div className="mt-auto">
                 <SoftButton onClick={() => { setSelectedMemory(null); setView("journey"); }} className="w-full justify-center">Start Memory Journey</SoftButton>
@@ -611,7 +684,7 @@ function PatientMyDayView({ showToast, reminders, currentTime }) {
 // 5. THE INTERACTIVE MEMORY JOURNEY QUIZ
 // ==========================================
 function MemoryJourneyView({ setView, showToast, memories, user }) {
-  const { t, lang } = useLanguage();
+  const { lang } = useLanguage();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [quizState, setQuizState] = useState('initial');
   const [feedbackMsg, setFeedbackMsg] = useState('');
@@ -787,7 +860,7 @@ function MemoryJourneyView({ setView, showToast, memories, user }) {
 // ==========================================
 export default function PatientHome() {
   const navigate = useNavigate();
-  const { t, lang } = useLanguage();
+  const { t } = useLanguage();
   const [view, setView] = useState("home");
   const [offline, setOffline] = useState(!navigator.onLine);
   const [toastMessage, setToastMessage] = useState("");
@@ -910,7 +983,7 @@ export default function PatientHome() {
             
             <div className="mt-9 grid gap-5 xl:grid-cols-[1.45fr_0.85fr]">
               <section className="relative min-h-[380px] overflow-hidden rounded-[28px] bg-[#162D3D] p-7 text-white sm:p-9 shadow-[0_24px_55px_rgba(22,45,61,0.16)]">
-                {todayMemory?.mediaUrl && <img src={getMediaUrl(todayMemory.mediaUrl)} className="absolute inset-0 h-full w-full object-cover opacity-50 z-0" />}
+                {todayMemory?.mediaUrl && <img src={getMediaUrl(todayMemory.mediaUrl)} alt="Today's featured memory" className="absolute inset-0 h-full w-full object-cover opacity-50 z-0" />}
                 <div className="absolute inset-0 bg-gradient-to-r from-[#162D3D]/90 via-[#162D3D]/60 to-transparent z-0" />
                 
                 <div className="relative z-10 flex h-full min-h-[320px] max-w-xl flex-col justify-between">

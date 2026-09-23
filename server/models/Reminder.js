@@ -2,9 +2,9 @@ const mongoose = require('mongoose');
 
 const reminderSchema = new mongoose.Schema({
   patientId: { 
-    type: mongoose.Schema.Types.ObjectId, 
-    ref: 'User', // Adjust this if your user model is named differently
-    required: true 
+    type: String, 
+    required: true,
+    index: true 
   },
   title: { type: String, required: true },
   time: { type: Date, required: true },

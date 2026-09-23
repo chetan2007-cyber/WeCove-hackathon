@@ -174,8 +174,9 @@ export default function Login() {
                   Mobile Number (+91)
                 </label>
                 <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-sm font-semibold text-[#162D3D]">
-                    +91
+                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-sm font-semibold text-[#162D3D] gap-1.5">
+                    <Phone className="w-4 h-4 text-[#0F7673]" />
+                    <span>+91</span>
                   </div>
                   <input
                     type="tel"
@@ -187,7 +188,7 @@ export default function Login() {
                       setPhoneNumber(e.target.value.replace(/\D/g, ""));
                       setErrorMsg("");
                     }}
-                    className="w-full h-14 pl-14 pr-4 rounded-2xl border border-[#DCE5E3] bg-white text-lg font-medium text-[#162D3D] outline-none transition focus:border-[#0F7673] focus:ring-2 focus:ring-[#0F7673]/10"
+                    className="w-full h-14 pl-20 pr-4 rounded-2xl border border-[#DCE5E3] bg-white text-lg font-medium text-[#162D3D] outline-none transition focus:border-[#0F7673] focus:ring-2 focus:ring-[#0F7673]/10"
                   />
                 </div>
                 <p className="mt-1.5 text-xs text-[#78909A]">

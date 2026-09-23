@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 
 const cognitiveMetricSchema = new mongoose.Schema({
-  patientId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  patientId: { type: String, required: true, index: true },
   gameName: { type: String, required: true },
   accuracy: { type: Number, required: true },
   notes: { type: String }

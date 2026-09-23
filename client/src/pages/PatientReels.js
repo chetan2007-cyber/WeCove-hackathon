@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, ChevronUp, ChevronDown, Volume2, Heart, Sparkles, CheckCircle2, RotateCcw } from 'lucide-react';
+import { ArrowLeft, ChevronUp, ChevronDown, Volume2, Heart, Sparkles, CheckCircle2 } from 'lucide-react';
 import memoryService from '../services/memoryService';
 import voiceService from '../services/voiceService';
 import { useLanguage } from '../context/LanguageContext';
 
 export default function PatientReels() {
   const navigate = useNavigate();
-  const { lang, t } = useLanguage();
+  const { lang } = useLanguage();
 
   const [reels, setReels] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);

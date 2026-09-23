@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Stethoscope, User, Calendar, FileText, Printer, AlertCircle, LogOut, CheckCircle2, RefreshCcw } from 'lucide-react';
+import { Stethoscope, FileText, Printer, AlertCircle, LogOut, RefreshCcw } from 'lucide-react';
 import caregiverService from '../services/caregiverService';
 import aiService from '../services/aiService';
 import authService from '../services/authService';

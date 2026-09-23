@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 
 const gameResultSchema = new mongoose.Schema({
-  patientId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  patientId: { type: String, required: true, index: true },
   
   // Old fields (for individual clicks - optional now)
   memoryId: { type: mongoose.Schema.Types.ObjectId, ref: 'MemoryItem' },
